@@ -92,26 +92,40 @@ UID Группы Логин Фамилия Имя Пароль
 
 Запустите:
 ```bash
-sudo python3 useradmin.py add-file users.txt
+python3 useradmin.py add-file users.txt --all
+python3 useradmin.py add-file users.txt --ldap --kerberos
+python3 useradmin.py add-file users.txt --steps ldap home
 ```
 
 ### Добавление одного пользователя
 
 ```bash
-sudo python3 useradmin.py add-user 24201 "students" s24v_avdeev "Авдеев" "Дмитрий" "PassWord1"
+python3 useradmin.py add-user 24201 "students" s24v_avdeev "Авдеев" "Дмитрий" "PassWord1" --all
+python3 useradmin.py add-user 24201 "students" s24v_avdeev "Авдеев" "Дмитрий" "PassWord1" --ldap --home
 ```
 
 ### Просмотр списка пользователей
 
 ```bash
-sudo python3 useradmin.py list-users
+python3 useradmin.py list-users
+python3 useradmin.py list-users --detailed
 ```
 
 ### Удаление пользователя
 
 ```bash
-sudo python3 useradmin.py delete-user s24v_avdeev
+python3 useradmin.py delete-user s24v_avdeev
 ```
+
+### Описание ключей командной строки
+
+- `--all` — выполнить все шаги (LDAP, Kerberos, домашний каталог, квота)
+- `--ldap` — только добавить в LDAP
+- `--kerberos` — только создать билет в Kerberos
+- `--home` — только создать домашний каталог
+- `--quota` — только задать квоту
+- `--steps ...` — выполнить только указанные шаги (можно несколько: ldap, kerberos, home, quota)
+- `--detailed` — для list-users: показать Kerberos, домашний каталог, квоты
 
 ## Структура LDAP
 

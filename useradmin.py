@@ -596,11 +596,23 @@ def main():
 Примеры использования:
   useradmin.py add-file users.txt --all                    # Выполнить все шаги
   useradmin.py add-file users.txt --ldap --kerberos        # Только LDAP и Kerberos
+  useradmin.py add-file users.txt --steps ldap home        # Только LDAP и домашний каталог
   useradmin.py add-user 1001 students user1 "Иванов" "Иван" "password123" --all
   useradmin.py add-user 1001 students user1 "Иванов" "Иван" "password123" --ldap --home
   useradmin.py list-users                                  # Список пользователей
   useradmin.py list-users --detailed                      # Детальная информация
   useradmin.py delete-user user1                           # Удалить пользователя
+
+Ключи для add-file и add-user:
+  --all         Выполнить все шаги (LDAP, Kerberos, домашний каталог, квота)
+  --ldap        Только добавить в LDAP
+  --kerberos    Только создать билет в Kerberos
+  --home        Только создать домашний каталог
+  --quota       Только задать квоту
+  --steps ...   Выполнить только указанные шаги (можно несколько: ldap, kerberos, home, quota)
+
+Ключи для list-users:
+  --detailed    Показать Kerberos, домашний каталог, квоты
         """
     )
     
