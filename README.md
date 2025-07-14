@@ -42,6 +42,17 @@ sudo dnf install python3-ldap3
 
 ## Конфигурация
 
+По умолчанию приложение ищет конфигурационный файл в следующем порядке:
+1. ~/.useradmin.conf (в домашнем каталоге пользователя)
+2. ./useradmin.conf (в текущей директории)
+Если ни один из файлов не найден, новый конфиг будет создан в ~/.useradmin.conf.
+
+Вы можете явно указать путь к конфигу при запуске из кода:
+
+```python
+admin = UserAdmin('/путь/к/конфигу.conf')
+```
+
 1. Отредактируйте файл `useradmin.conf`:
 
 ```ini
@@ -61,6 +72,7 @@ kadmin_password = your_kadmin_password
 [NFS]
 home_base = /home
 skel_dir = /etc/skel
+home_permissions = 750  # Права на домашний каталог пользователя (по умолчанию 750)
 
 [QUOTAS]
 default_soft_limit = 100M

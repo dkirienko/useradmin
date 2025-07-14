@@ -23,8 +23,21 @@ import base64
 
 
 class UserAdmin:
-    def __init__(self, config_file: str = "useradmin.conf"):
+    def __init__(self, config_file: Optional[str] = None):
         """Инициализация приложения с загрузкой конфигурации"""
+        if config_file is None:
+            # Ищем конфиг в домашнем каталоге пользователя, затем в текущей директории
+            home_config = os.path.expanduser("~/.useradmin.conf")
+            current_config = "useradmin.conf"
+            
+            if os.path.exists(home_config):
+                config_file = home_config
+            elif os.path.exists(current_config):
+                config_file = current_config
+            else:
+                # Если ни один файл не найден, создаем в домашнем каталоге
+                config_file = home_config
+        
         self.config = self._load_config(config_file)
         self._setup_logging()
         self.logger = logging.getLogger(__name__)
@@ -61,7 +74,8 @@ class UserAdmin:
         
         config['NFS'] = {
             'home_base': '/home',
-            'skel_dir': '/etc/skel'
+            'skel_dir': '/etc/skel',
+            'home_permissions': '750' # Добавляем настройку прав
         }
         
         config['QUOTAS'] = {
@@ -223,9 +237,13 @@ class UserAdmin:
             home_base = self.config.get('NFS', 'home_base')
             skel_dir = self.config.get('NFS', 'skel_dir')
             home_dir = Path(home_base) / username
-            
+            # Получаем права из конфига (по умолчанию 750)
+            permissions_str = self.config.get('NFS', 'home_permissions', fallback='750')
+            permissions = int(permissions_str, 8)
             # Создаем домашний каталог
             home_dir.mkdir(parents=True, exist_ok=True)
+            # Устанавливаем права доступа
+            os.chmod(home_dir, permissions)
             
             # Копируем файлы из /etc/skel
             if os.path.exists(skel_dir):
@@ -452,11 +470,11 @@ class UserAdmin:
         self.logger.debug(f"Используется тип файловой системы по умолчанию: ext4")
         return 'ext4'
 
-    def get_user_quota(self, username: str) -> Optional[str]:
-        """Получение информации о квоте пользователя"""
+    def get_all_quotas(self) -> Dict[str, Dict]:
+        """Получить квоты для всех пользователей за один вызов xfs_quota"""
+        quotas = {}
         try:
             home_base = self.config.get('NFS', 'home_base')
-            # Автоматически определяем тип файловой системы, если не указан в конфиге
             config_fs_type = self.config.get('QUOTAS', 'filesystem_type', fallback=None)
             if config_fs_type:
                 filesystem_type = config_fs_type
@@ -464,41 +482,128 @@ class UserAdmin:
                 filesystem_type = self.get_filesystem_type(home_base)
             
             if filesystem_type.lower() == 'xfs':
-                # Для XFS используем xfs_quota
-                cmd = ['xfs_quota', '-x', '-c', f'report -h -u {username}', home_base]
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                # Получаем квоты по блокам для всех пользователей
+                cmd_blocks = ['xfs_quota', '-x', '-c', 'report -h', home_base]
+                result_blocks = subprocess.run(cmd_blocks, capture_output=True, text=True)
                 
+                # Получаем квоты по inodes для всех пользователей
+                cmd_inodes = ['xfs_quota', '-x', '-c', 'report -h -i', home_base]
+                result_inodes = subprocess.run(cmd_inodes, capture_output=True, text=True)
+                
+                # Парсим блоки
+                if result_blocks.returncode == 0:
+                    lines = result_blocks.stdout.strip().split('\n')
+                    for line in lines:
+                        parts = line.split()
+                        if len(parts) >= 5 and parts[0] not in ['User', 'User ID', '----------', 'root']:
+                            username = parts[0]
+                            if username not in quotas:
+                                quotas[username] = {}
+                            quotas[username]['blocks'] = f"{parts[1]}/{parts[2]}/{parts[3]}"
+                
+                # Парсим inodes
+                if result_inodes.returncode == 0:
+                    lines = result_inodes.stdout.strip().split('\n')
+                    for line in lines:
+                        parts = line.split()
+                        if len(parts) >= 5 and parts[0] not in ['User', 'User ID', '----------', 'root']:
+                            username = parts[0]
+                            if username not in quotas:
+                                quotas[username] = {}
+                            quotas[username]['inodes'] = f"{parts[1]}/{parts[2]}/{parts[3]}"
+                
+                # Формируем итоговые строки
+                for username in quotas:
+                    blocks_info = quotas[username].get('blocks', '-')
+                    inodes_info = quotas[username].get('inodes', '-')
+                    quotas[username]['quota_str'] = f"blocks: {blocks_info}; inodes: {inodes_info}"
+            else:
+                # Для ext4 и других файловых систем
+                cmd = ['quota', '-a']
+                result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode == 0:
                     lines = result.stdout.strip().split('\n')
                     for line in lines:
-                        if username in line:
+                        parts = line.split()
+                        if len(parts) >= 6 and parts[0] not in ['Filesystem', 'root']:
+                            username = parts[0]
+                            quotas[username] = {
+                                'quota_str': f"blocks: {parts[1]}/{parts[2]}; inodes: {parts[4]}/{parts[5]}"
+                            }
+        except Exception as e:
+            self.logger.debug(f"Ошибка при получении квот: {e}")
+        
+        return quotas
+
+    def get_user_quota(self, username: str) -> Optional[str]:
+        """Получение информации о квоте пользователя (для обратной совместимости)"""
+        try:
+            home_base = self.config.get('NFS', 'home_base')
+            config_fs_type = self.config.get('QUOTAS', 'filesystem_type', fallback=None)
+            if config_fs_type:
+                filesystem_type = config_fs_type
+            else:
+                filesystem_type = self.get_filesystem_type(home_base)
+            if filesystem_type.lower() == 'xfs':
+                # Получаем квоту по блокам для всех пользователей
+                cmd_blocks = ['xfs_quota', '-x', '-c', 'report -h', home_base]
+                result_blocks = subprocess.run(cmd_blocks, capture_output=True, text=True)
+                self.logger.debug(f"xfs_quota blocks stdout for {username}:\n{result_blocks.stdout}")
+                blocks_info = None
+                if result_blocks.returncode == 0:
+                    lines = result_blocks.stdout.strip().split('\n')
+                    for line in lines:
+                        self.logger.debug(f"blocks line: {line}")
+                        if line.strip().startswith(username):
                             parts = line.split()
-                            if len(parts) >= 6:
-                                # Формат: username blocks soft hard grace files soft hard grace
-                                block_usage = f"{parts[1]}/{parts[2]}"  # used/soft
-                                inode_usage = f"{parts[4]}/{parts[5]}"  # files used/soft
-                                return f"{block_usage} blocks, {inode_usage} inodes"
-                            elif len(parts) >= 3:
-                                return f"{parts[1]}/{parts[2]} blocks"
+                            self.logger.debug(f"blocks parts: {parts}")
+                            if len(parts) >= 5:
+                                blocks_info = f"{parts[1]}/{parts[2]}/{parts[3]}"
+                # Получаем квоту по inodes для всех пользователей
+                cmd_inodes = ['xfs_quota', '-x', '-c', 'report -h -i', home_base]
+                result_inodes = subprocess.run(cmd_inodes, capture_output=True, text=True)
+                self.logger.debug(f"xfs_quota inodes stdout for {username}:\n{result_inodes.stdout}")
+                inodes_info = None
+                if result_inodes.returncode == 0:
+                    lines = result_inodes.stdout.strip().split('\n')
+                    for line in lines:
+                        self.logger.debug(f"inodes line: {line}")
+                        if line.strip().startswith(username):
+                            parts = line.split()
+                            self.logger.debug(f"inodes parts: {parts}")
+                            if len(parts) >= 5:
+                                inodes_info = f"{parts[1]}/{parts[2]}/{parts[3]}"
+                result_str = None
+                if blocks_info or inodes_info:
+                    result_str = f"blocks: {blocks_info if blocks_info else '-'}; inodes: {inodes_info if inodes_info else '-'}"
+                else:
+                    result_str = "Не установлена"
+                self.logger.debug(f"get_user_quota result for {username}: {result_str}")
+                return result_str
             else:
                 # Для ext4 и других используем quota
                 cmd = ['quota', '-u', username]
                 result = subprocess.run(cmd, capture_output=True, text=True)
-                
+                self.logger.debug(f"quota stdout for {username}:\n{result.stdout}")
                 if result.returncode == 0:
                     lines = result.stdout.strip().split('\n')
-                    if len(lines) >= 3:  # Пропускаем заголовки
+                    if len(lines) >= 3:
                         quota_line = lines[2]
+                        self.logger.debug(f"quota line: {quota_line}")
                         parts = quota_line.split()
-                        if len(parts) >= 6:  # Должно быть 6 полей: filesystem, blocks, limit, grace, files, limit
-                            block_usage = f"{parts[1]}/{parts[2]}"  # blocks used/limit
-                            inode_usage = f"{parts[4]}/{parts[5]}"  # files used/limit
-                            return f"{block_usage} blocks, {inode_usage} inodes"
+                        self.logger.debug(f"quota parts: {parts}")
+                        if len(parts) >= 6:
+                            block_usage = f"{parts[1]}/{parts[2]}"
+                            inode_usage = f"{parts[4]}/{parts[5]}"
+                            result_str = f"blocks: {block_usage}; inodes: {inode_usage}"
+                            self.logger.debug(f"get_user_quota result for {username}: {result_str}")
+                            return result_str
                         elif len(parts) >= 4:
-                            return f"{parts[1]}/{parts[2]} blocks"
-            
-            return "Не установлена"
-            
+                            result_str = f"blocks: {parts[1]}/{parts[2]}"
+                            self.logger.debug(f"get_user_quota result for {username}: {result_str}")
+                            return result_str
+                self.logger.debug(f"get_user_quota result for {username}: Не установлена")
+                return "Не установлена"
         except Exception as e:
             self.logger.debug(f"Ошибка при получении квоты для {username}: {e}")
             return "Ошибка"
@@ -519,6 +624,11 @@ class UserAdmin:
             
             self.logger.info(f"Найдено записей: {len(conn.entries)}")
             
+            # Получаем квоты для всех пользователей за один вызов
+            all_quotas = {}
+            if detailed:
+                all_quotas = self.get_all_quotas()
+            
             users = []
             for entry in conn.entries:
                 user_info = {
@@ -531,7 +641,8 @@ class UserAdmin:
                 if detailed:
                     user_info['kerberos'] = self.check_kerberos_principal(entry.uid.value)
                     user_info['home_dir'] = self.check_home_directory(entry.uid.value)
-                    user_info['quota'] = self.get_user_quota(entry.uid.value)
+                    # Используем кэшированные квоты
+                    user_info['quota'] = all_quotas.get(entry.uid.value, {}).get('quota_str', 'Не установлена')
                 
                 users.append(user_info)
             
@@ -613,6 +724,10 @@ def main():
 
 Ключи для list-users:
   --detailed    Показать Kerberos, домашний каталог, квоты
+
+Конфигурационный файл:
+  По умолчанию ищется в ~/.useradmin.conf, затем в ./useradmin.conf.
+  Если не найден — будет создан ~/.useradmin.conf автоматически.
         """
     )
     
