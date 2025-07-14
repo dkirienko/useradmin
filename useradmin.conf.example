@@ -15,6 +15,7 @@ check_method = kadmin.local
 [NFS]
 home_base = /home
 skel_dir = /etc/skel
+home_permissions = 750  # Права на домашний каталог пользователя (по умолчанию 750)
 
 [QUOTAS]
 default_soft_limit = 1G
