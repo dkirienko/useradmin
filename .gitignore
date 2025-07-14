@@ -40,4 +40,4 @@ ENV/
 
 # Временные файлы
 *.tmp
-*.temp 
+*.temp useradmin.conf
