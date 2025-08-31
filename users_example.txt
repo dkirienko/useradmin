@@ -1,7 +1,7 @@
 # Пример файла с пользователями
 # Формат: UID Группы Логин Фамилия Имя Пароль
-24201 students s24v_avdeev Авдеев Дмитрий PassWord1
-24202 students s24v_belenkii Беленький Владимир PassWord2
-24203 students s24v_biriukov Бирюков Иван PassWord3
-24204 students s24v_gordeev Гордеев Вячеслав PassWord4
+24201 students s26a_avdeev Авдеев Дмитрий PassWord1
+24202 students s27b_belenkii Беленький Владимир PassWord2
+24203 students s28v_biriukov Бирюков Иван PassWord3
+24204 students s29g_gordeev Гордеев Вячеслав PassWord4
 24205 students s24v_darchiev Дарчиев Александр PassWord5 

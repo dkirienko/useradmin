@@ -72,6 +72,10 @@ class UserAdmin:
             'check_method': 'kadmin'
         }
         
+        config['ACADEMIC'] = {
+            'current_year': '2025'
+        }
+        
         config['NFS'] = {
             'home_base': '/home',
             'skel_dir': '/etc/skel',
@@ -652,6 +656,176 @@ class UserAdmin:
             self.logger.error(f"Ошибка при получении списка пользователей: {e}")
             return []
     
+    def export_passwords_from_file(self, input_file: str, output_file: str = "passwords.txt") -> bool:
+        """Экспорт паролей пользователей из файла в текстовый файл"""
+        try:
+            self.logger.info(f"Начинаем экспорт паролей из файла {input_file} в {output_file}")
+            
+            # Читаем пользователей из входного файла
+            users = self._read_users_from_file(input_file)
+            if not users:
+                self.logger.warning("Пользователи не найдены в файле")
+                return False
+            
+            with open(output_file, 'w', encoding='utf-8') as f:
+                for user in users:
+                    uid, groups, username, surname, firstname, password = user
+                    full_name = f"{firstname} {surname}"
+                    
+                    # Определяем группу пользователя
+                    group_name = self._get_user_group(username, uid)
+                    
+                    # Записываем информацию в файл
+                    f.write(f"{full_name}, {group_name}\n")
+                    f.write(f"Username:          {username}\n")
+                    f.write(f"Login password:    {password}\n")
+                    f.write("\n")
+                    f.write("-" * 27 + "\n")
+                    f.write("\n")
+            
+            self.logger.info(f"Пароли экспортированы в файл {output_file}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка при экспорте паролей: {e}")
+            return False
+    
+    def _read_users_from_file(self, filename: str) -> List[tuple]:
+        """Чтение пользователей из файла"""
+        users = []
+        
+        try:
+            with open(filename, 'r', encoding='utf-8') as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    
+                    try:
+                        parts = line.split()
+                        if len(parts) != 6:
+                            self.logger.warning(f"Строка {line_num}: неверный формат")
+                            continue
+                        
+                        uid, groups, username, surname, firstname, password = parts
+                        users.append((uid, groups, username, surname, firstname, password))
+                        
+                    except ValueError as e:
+                        self.logger.error(f"Строка {line_num}: ошибка парсинга - {e}")
+                        continue
+                        
+        except FileNotFoundError:
+            self.logger.error(f"Файл {filename} не найден")
+        except Exception as e:
+            self.logger.error(f"Ошибка при обработке файла: {e}")
+        
+        return users
+    
+    def export_passwords(self, filename: str = "passwords.txt") -> bool:
+        """Экспорт паролей пользователей в текстовый файл (устаревший метод)"""
+        self.logger.warning("Метод export_passwords устарел. Используйте export_passwords_from_file")
+        return False
+    
+    def _get_current_academic_year(self) -> int:
+        """Определение текущего учебного года"""
+        try:
+            # Сначала пытаемся получить из конфигурации
+            config_year = self.config.get('ACADEMIC', 'current_year', fallback=None)
+            if config_year:
+                return int(config_year)
+        except (ValueError, KeyError):
+            pass
+        
+        # Если не удалось получить из конфига, определяем автоматически
+        from datetime import datetime
+        
+        current_date = datetime.now()
+        # Учебный год начинается 1 июля
+        if current_date.month >= 7:
+            return current_date.year
+        else:
+            return current_date.year - 1
+    
+    def _get_class_from_username(self, username: str) -> str:
+        """Определение класса из логина пользователя"""
+        try:
+            # Проверяем, что логин начинается с 's' (студент)
+            if not username.startswith('s'):
+                return "Неизвестно"
+            
+            # Извлекаем год выпуска (две цифры после 's')
+            if len(username) < 3:
+                return "Неизвестно"
+            
+            graduation_year_str = username[1:3]
+            if not graduation_year_str.isdigit():
+                return "Неизвестно"
+            
+            graduation_year = int(graduation_year_str)
+            # Преобразуем в полный год (20xx)
+            graduation_year = 2000 + graduation_year
+            
+            # Определяем текущий учебный год
+            current_academic_year = self._get_current_academic_year()
+            
+            # Вычисляем класс
+            # Базовый год выпуска = текущий учебный год + 1
+            base_graduation_year = current_academic_year + 1
+            
+            # Формула: 11 - (год_выпуска - базовый_год_выпуска)
+            # s26 (выпуск 2026) в 2025-2026 учебном году = 11 класс
+            # s27 (выпуск 2027) в 2025-2026 учебном году = 10 класс
+            class_number = 11 - (graduation_year - base_graduation_year)
+            
+            # Отладочная информация
+            self.logger.debug(f"Логин: {username}, Год выпуска: {graduation_year}, Текущий учебный год: {current_academic_year}, Базовый год выпуска: {base_graduation_year}, Класс: {class_number}")
+            
+            # Проверяем валидность класса
+            if class_number < 1 or class_number > 11:
+                return "Неизвестно"
+            
+            # Извлекаем букву класса (после года выпуска)
+            if len(username) < 4:
+                return f"{class_number}"
+            
+            class_letter_latin = username[3]
+            
+            # Транслитерация букв класса
+            transliteration = {
+                'a': 'А', 'b': 'Б', 'v': 'В', 
+                'g': 'Г', 'd': 'Д', 'e': 'Е',
+                'k': 'К', 'l': 'Л', 'i': 'И', 
+            }
+            
+            class_letter_cyrillic = transliteration.get(class_letter_latin.lower(), class_letter_latin.upper())
+            
+            return f"{class_number}{class_letter_cyrillic}"
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка при определении класса из логина {username}: {e}")
+            return "Неизвестно"
+    
+    def _get_user_group(self, username: str, uid_number: str) -> str:
+        """Получение основной группы пользователя"""
+        try:
+            # Сначала пытаемся определить класс из логина
+            class_info = self._get_class_from_username(username)
+            if class_info != "Неизвестно":
+                return class_info
+            
+            # Если не удалось определить класс, возвращаем префикс пользователя
+            # Для учителей (t*) возвращаем "teachers", для админов (admin*) - "admins"
+            if username.startswith('t'):
+                return "teachers"
+            elif username.startswith('admin'):
+                return "admins"
+            else:
+                return username
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка при получении группы пользователя {username}: {e}")
+            return "Неизвестно"
+    
     def delete_user(self, username: str) -> bool:
         """Удаление пользователя из системы"""
         self.logger.info(f"Начинаем удаление пользователя {username}")
@@ -713,6 +887,8 @@ def main():
   useradmin.py list-users                                  # Список пользователей
   useradmin.py list-users --detailed                      # Детальная информация
   useradmin.py delete-user user1                           # Удалить пользователя
+  useradmin.py export-passwords users.txt                  # Экспорт паролей из файла users.txt
+  useradmin.py export-passwords users.txt --output my_passwords.txt # Экспорт в указанный файл
 
 Ключи для add-file и add-user:
   --all         Выполнить все шаги (LDAP, Kerberos, домашний каталог, квота)
@@ -724,6 +900,10 @@ def main():
 
 Ключи для list-users:
   --detailed    Показать Kerberos, домашний каталог, квоты
+
+Ключи для export-passwords:
+  input_file    Файл с пользователями (формат: UID Группы Логин Фамилия Имя Пароль)
+  --output      Имя файла для экспорта (по умолчанию: passwords.txt)
 
 Конфигурационный файл:
   По умолчанию ищется в ~/.useradmin.conf, затем в ./useradmin.conf.
@@ -773,6 +953,12 @@ def main():
     # Команда удаления пользователя
     delete_parser = subparsers.add_parser('delete-user', help='Удалить пользователя')
     delete_parser.add_argument('username', help='Имя пользователя для удаления')
+    
+    # Команда экспорта паролей
+    export_parser = subparsers.add_parser('export-passwords', help='Экспорт паролей пользователей в файл')
+    export_parser.add_argument('input_file', help='Файл с пользователями (формат: UID Группы Логин Фамилия Имя Пароль)')
+    export_parser.add_argument('--output', default='passwords.txt', 
+                              help='Имя файла для экспорта (по умолчанию: passwords.txt)')
     
     args = parser.parse_args()
     
@@ -854,6 +1040,14 @@ def main():
                 print(f"Пользователь {args.username} успешно удален")
             else:
                 print(f"Ошибка при удалении пользователя {args.username}")
+                sys.exit(1)
+        
+        elif args.command == 'export-passwords':
+            success = admin.export_passwords_from_file(args.input_file, args.output)
+            if success:
+                print(f"Пароли пользователей экспортированы в файл {args.output}")
+            else:
+                print(f"Ошибка при экспорте паролей в файл {args.output}")
                 sys.exit(1)
     
     except KeyboardInterrupt:

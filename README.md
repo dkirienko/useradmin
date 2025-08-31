@@ -82,10 +82,22 @@ default_inode_hard_limit = 2000
 quota_type = user
 filesystem_type = xfs
 
+[ACADEMIC]
+current_year = 2025
+
 [LOGGING]
 level = INFO
 file = /var/log/useradmin.log
 ```
+
+### Описание секций конфигурации
+
+- **[LDAP]** - настройки подключения к LDAP серверу
+- **[KERBEROS]** - настройки Kerberos аутентификации
+- **[NFS]** - настройки домашних каталогов
+- **[QUOTAS]** - настройки дисковых квот
+- **[ACADEMIC]** - академические параметры для определения класса
+- **[LOGGING]** - настройки логирования
 
 ## Использование
 
@@ -129,6 +141,24 @@ python3 useradmin.py list-users --detailed
 python3 useradmin.py delete-user s24v_avdeev
 ```
 
+### Экспорт паролей пользователей
+
+```bash
+python3 useradmin.py export-passwords
+python3 useradmin.py export-passwords --filename my_passwords.txt
+```
+
+Создает файл с информацией о пользователях в формате:
+```
+Панов Михаил, 11Б
+Username:          s26b_mpanov
+Login password:    ximL3qz7t
+
+----------------------------
+```
+
+**Примечание:** Класс определяется из логина студента (например, s26b_mpanov → 11Б класс).
+
 ### Описание ключей командной строки
 
 - `--all` — выполнить все шаги (LDAP, Kerberos, домашний каталог, квота)
@@ -138,6 +168,7 @@ python3 useradmin.py delete-user s24v_avdeev
 - `--quota` — только задать квоту
 - `--steps ...` — выполнить только указанные шаги (можно несколько: ldap, kerberos, home, quota)
 - `--detailed` — для list-users: показать Kerberos, домашний каталог, квоты
+- `--filename` — для export-passwords: имя файла для экспорта (по умолчанию: passwords.txt)
 
 ## Структура LDAP
 

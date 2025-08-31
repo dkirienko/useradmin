@@ -12,6 +12,9 @@ kadmin_principal = kadmin/admin@SCH179.LOCAL
 kadmin_password = qwerty123
 check_method = kadmin.local
 
+[ACADEMIC]
+current_year = 2025
+
 [NFS]
 home_base = /home
 skel_dir = /etc/skel
