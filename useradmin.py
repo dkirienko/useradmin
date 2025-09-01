@@ -145,6 +145,15 @@ class UserAdmin:
         return password
     
 
+    def _sss_cache_reset(self) -> bool:
+        """Сброс кэша sss"""
+        try:
+            subprocess.run(['sss_cache', '-U'], check=True)
+            return True
+        except Exception as e:
+            self.logger.error(f"Ошибка при сбросе кэша sss: {e}")
+            return False
+
     
     def add_user_to_ldap(self, uid: int, username: str, surname: str, firstname: str, 
                          groups: List[str]) -> bool:
@@ -201,6 +210,9 @@ class UserAdmin:
                     if conn.search(group_dn, '(objectClass=*)', search_scope=ldap3.BASE):
                         conn.modify(group_dn, {'memberUid': [(ldap3.MODIFY_ADD, [username])]})
                         self.logger.info(f"Пользователь {username} добавлен в группу {group_name}")
+            
+            # Сбрасываем кэш sss
+            self._sss_cache_reset()
             
             return True
             
